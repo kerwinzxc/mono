@@ -8390,18 +8390,16 @@ MonoCustomAttrInfo*
 mono_custom_attrs_from_class (MonoClass *klass)
 {
 	MonoDomain* domain = mono_domain_get();
-
-	// Hashing attributes as a lookup optimization.
-	MonoCustomAttrInfo* hashed_attribute_info = (MonoCustomAttrInfo*)g_hash_table_lookup(domain->class_custom_attributes, klass);
+	MonoCustomAttrInfo* cattrs;
+	MonoCustomAttrInfo* cattrs_orig;
 	guint32 idx;
-
-	if(hashed_attribute_info != NULL) 
-	{
-		return hashed_attribute_info;
-	}
 
 	if (klass->generic_class)
 		klass = klass->generic_class->container_class;
+
+	cattrs_orig = InterlockedCompareExchangePointer(&klass->cattrs, NULL, NULL);
+	if (cattrs_orig)
+		return cattrs_orig;
 
 	if (klass->image->dynamic)
 		return lookup_custom_attr (klass->image, klass);
@@ -8416,13 +8414,22 @@ mono_custom_attrs_from_class (MonoClass *klass)
 		idx |= MONO_CUSTOM_ATTR_TYPEDEF;
 	}
 
-	hashed_attribute_info = mono_custom_attrs_from_index (klass->image, idx);
+	cattrs = mono_custom_attrs_from_index (klass->image, idx);
 
-	g_hash_table_insert(domain->class_custom_attributes, klass, hashed_attribute_info);
-	/* Tell users not to free hashed_attribute_info */
-	if (hashed_attribute_info != NULL)
-		hashed_attribute_info->cached = 1;
-	return hashed_attribute_info;
+	if (cattrs) {
+		/* Tell users not to free hashed_attribute_info */
+		cattrs->cached = 1;
+
+		cattrs_orig = InterlockedCompareExchangePointer(&klass->cattrs, cattrs, NULL);
+
+		/* race to cache and another thread won */
+		if (cattrs_orig) {
+			g_free (cattrs);
+			cattrs = cattrs_orig
+		}
+	}
+
+	return cattrs;
 }
 
 MonoCustomAttrInfo*

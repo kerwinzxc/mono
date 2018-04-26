@@ -357,6 +357,9 @@ struct _MonoClass {
 	MonoClass  *parent;
 	MonoClass  *nested_in;
 
+	/* cached custom attributes for the class */
+	MonoCustomAttrInfo* cattrs;
+
 	MonoImage *image;
 	const char *name;
 	const char *name_space;
